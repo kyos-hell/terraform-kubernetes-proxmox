@@ -43,7 +43,7 @@ This project automates the complete deployment of a Kubernetes HA (High Availabi
     │ 2048 MB RAM │          │ 4096 MB RAM  │         │ 4096 MB RAM  │
     │ 1 CPU       │          │ 2 CPUs       │         │ 2 CPUs each  │
     └─────────────┘          └──────────────┘         └──────────────┘
-    192.168.11.10          192.168.11.11    192.168.11.12/13/14
+    192.168.1.10          192.168.1.11    192.168.1.12/13/14
          │                       │                      │
          └───────────────────────┼──────────────────────┘
                                  │
@@ -129,11 +129,11 @@ projet-terraform-k8s/
 
 | Role | Name | IP | CPU | RAM | Responsibilities |
 |------|------|----|----|-----|-----------------|
-| **Master** | k8s-master-01 | 192.168.11.11 | 2 | 4 GB | Control Plane, API Server, etcd, Scheduler |
-| **Worker** | k8s-worker-01 | 192.168.11.12 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
-| **Worker** | k8s-worker-02 | 192.168.11.13 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
-| **Worker** | k8s-worker-03 | 192.168.11.14 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
-| **Ansible** | ansible-01 | 192.168.11.10 | 1 | 2 GB | Bastion/Control node (not K8s) |
+| **Master** | k8s-master-01 | 192.168.1.11 | 2 | 4 GB | Control Plane, API Server, etcd, Scheduler |
+| **Worker** | k8s-worker-01 | 192.168.1.12 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
+| **Worker** | k8s-worker-02 | 192.168.1.13 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
+| **Worker** | k8s-worker-03 | 192.168.1.14 | 2 | 4 GB | Kubelet, kube-proxy, Pod scheduling |
+| **Ansible** | ansible-01 | 192.168.1.10 | 1 | 2 GB | Bastion/Control node (not K8s) |
 
 ### Installed Kubernetes Components
 
@@ -179,7 +179,7 @@ projet-terraform-k8s/
 
 ```
 ┌────────────────────────────────────────────┐
-│      Host Network (192.168.11.0/24)       │
+│      Host Network (192.168.1.0/24)       │
 │   (Proxmox vmbr0 bridge, example)            │
 └────────────────────────────────────────────┘
          │           │          │       │
@@ -486,10 +486,10 @@ variable "ssh_user"            # SSH user (ubuntu by default)
 ### Network
 
 ```hcl
-variable "network_bridge"      # vmbr2 (Proxmox bridge)
-variable "gateway_ipv4"        # 192.168.11.254
+variable "network_bridge"      # vmbr0 (Proxmox bridge)
+variable "gateway_ipv4"        # 192.168.1.1
 variable "network_prefix"      # 24 (CIDR)
-variable "domain"              # training.local
+variable "domain"              # k8s.local
 ```
 
 ### Storage
@@ -510,9 +510,9 @@ variable "additionnal_disks" = []  # List of additional disks
 ```hcl
 # Outputs available after terraform apply
 ├── vm_details         # IP, FQDN, resources
-├── ansible_control_ip # 192.168.11.10
-├── kubernetes_master  # 192.168.11.11
-├── kubernetes_workers # [192.168.11.12, 13, 14]
+├── ansible_control_ip # 192.168.1.10
+├── kubernetes_master  # 192.168.1.11
+├── kubernetes_workers # [192.168.1.12, 13, 14]
 ├── ssh_private_key    # Local private key path
 └── cluster_status     # Provisioning state
 ```

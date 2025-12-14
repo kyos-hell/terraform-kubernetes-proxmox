@@ -1,0 +1,198 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform-docs.yaml
+
+# SSH Keys & Secrets (CRITICAL - NEVER COMMIT)
+secrets/
+*.pem
+*.key
+!*.pub
+*.ppk
+.ssh/
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+ansible_cluster_id_ed25519
+ansible_cluster_id_ed25519.pub
+
+# API Tokens & Credentials
+.env
+.env.local
+.env.*.local
+.env.secret
+proxmox.conf
+kubeconfig
+admin.conf
+.kube/
+
+# Ansible
+*.retry
+ansible/*.retry
+inventory/*.retry
+.ansible_vault_pass
+vault_password
+
+# Cloud-init logs
+cloud-init.log
+cloud-init-output.log
+
+# Terraform logs and backups
+terraform.log
+*.backup
+*.tmp
+*.swp
+*.swo
+*~
+
+# Terraform provisioner logs
+.terraform_reboot_logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+.python-version
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.sublime-project
+.sublime-workspace
+*.iml
+.vim/
+.netrwhist
+
+# Editor backup files
+*~
+*.bak
+*.swp
+*.swo
+*#
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.AppleDouble
+.AppleDB
+
+# Node.js (if using node tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Kubernetes
+kubeconfig
+.kubeconfig
+kubeconfig.bak
+
+# Logs
+*.log
+logs/
+*.out
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+*.temp
+
+# GitHub
+.github/workflows/*.log
+
+# Large files that shouldn't be committed
+*.iso
+*.tar.gz
+*.zip
+dump.sql
+
+# MacOS
+.AppleDouble
+.AppleDB
+.LSOverride
+*.localized
+
+# Windows
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Local development overrides
+local.tfvars
+dev.tfvars
+*.local.tf
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# Cache files
+.cache/
+cache/
+
+# Keep track of important documentation but not generated files
+!docs/
+docs/*.generated.md

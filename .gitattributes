@@ -1,0 +1,66 @@
+# Git attributes for handling line endings
+# This ensures consistent line endings across Windows, macOS, and Linux
+
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Shell scripts - always LF
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Terraform files - always LF
+*.tf text eol=lf
+*.tfvars text eol=lf
+*.hcl text eol=lf
+
+# YAML files - always LF (important for cloud-init, Ansible, Kubernetes)
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Python files - always LF
+*.py text eol=lf
+
+# Markdown files - always LF
+*.md text eol=lf
+README text eol=lf
+
+# JSON files - always LF
+*.json text eol=lf
+
+# Shell config files - always LF
+.bashrc text eol=lf
+.bash_profile text eol=lf
+.zshrc text eol=lf
+
+# Git-related files - always LF
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Documentation - always LF
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Windows-specific files - CRLF is OK
+*.bat eol=crlf
+*.cmd eol=crlf
+*.ps1 eol=crlf
+
+# Binary files - don't touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.gz binary
+*.tar binary
+
+# SSH keys and certificates - binary
+*.pem binary
+*.key binary
+*.pub binary
+*.crt binary
+*.cert binary
+
+# Terraform state files - binary
+*.tfstate binary
+*.tfstate.* binary

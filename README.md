@@ -1,5 +1,12 @@
 # Terraform + Kubernetes on Proxmox — Learning Project
 
+![Terraform](https://img.shields.io/badge/Terraform-1.0+-623CE4?logo=terraform&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-1.29-326CE5?logo=kubernetes&logoColor=white)
+![Proxmox](https://img.shields.io/badge/Proxmox-7.0+-E57000?logo=proxmox&logoColor=white)
+![Ansible](https://img.shields.io/badge/Ansible-2.9+-EE0000?logo=ansible&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-Debian/Ubuntu-A81D33?logo=linux&logoColor=white)
+![Bash](https://img.shields.io/badge/Bash-5.0+-4EAA25?logo=gnubash&logoColor=white)
+
 Welcome! 👋 This project demonstrates infrastructure-as-code principles by automating the provisioning of a complete Kubernetes cluster on Proxmox VE using Terraform, cloud-init, and Ansible.
 
 ---

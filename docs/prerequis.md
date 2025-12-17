@@ -128,7 +128,7 @@ Kubernetes can tolerate some resource overcommitment:
    - **Privileges**: Leave default for now (will restrict later if needed)
 4. **IMPORTANT**: Copy the **Token Value** immediately (shown only once)
    - Format: `USER@REALM!TOKENID=SECRET`
-   - Example: `terraform@pve!terraform-token=abc123def456ghi789jkl012`
+   - Example: `terraform@pve!terraform-token=`
 
 #### 2. **API Endpoint Configuration**
 
@@ -136,7 +136,7 @@ Kubernetes can tolerate some resource overcommitment:
 - **Example**: `https://0.0.0.0:8006/`
 - **Verification**:
   ```bash
-  curl -k https://51.75.54.137:8006/api2/json/version
+  curl -k https://0.0.0.0:8006/api2/json/version
   ```
 
 #### 3. **SSL Certificate Consideration**

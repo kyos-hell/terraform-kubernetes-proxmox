@@ -381,11 +381,11 @@ These are **NOT** installed locally; they are deployed to VMs via:
    - Each VM FQDN: `{name}.{domain}` (e.g., `ansible-01.training.local`)
    - Configure in local `/etc/hosts` (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
      ```
-     192.168.11.10 ansible-01.training.local ansible-01
-     192.168.11.11 k8s-master-01.training.local k8s-master-01
-     192.168.11.12 k8s-worker-01.training.local k8s-worker-01
-     192.168.11.13 k8s-worker-02.training.local k8s-worker-02
-     192.168.11.14 k8s-worker-03.training.local k8s-worker-03
+     192.168.1.10 ansible-01.training.local ansible-01
+     192.168.1.11 k8s-master-01.training.local k8s-master-01
+     192.168.1.12 k8s-worker-01.training.local k8s-worker-01
+     192.168.1.13 k8s-worker-02.training.local k8s-worker-02
+     192.168.1.14 k8s-worker-03.training.local k8s-worker-03
      ```
 
 ### Port Requirements
@@ -496,13 +496,13 @@ In `variables.tf` or `terraform.tfvars`:
 ```hcl
 variable "proxmox_endpoint" {
   type    = string
-  default = "https://51.75.54.137:8006/"
+  default = "https://0.0.0.0:8006/"
 }
 
 variable "api_token" {
   type      = string
   sensitive = true
-  # Example: "terraform@pve!terraform-token=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5"
+  # Example: "terraform@pve!terraform-token="
 }
 ```
 
@@ -1110,12 +1110,12 @@ ansible-inventory --list
 
 # Local SSH
 ssh-add -l
-ssh -i ./secrets/ansible_cluster_id_ed25519 ubuntu@192.168.11.10
+ssh -i ./secrets/ansible_cluster_id_ed25519 ubuntu@192.168.1.10
 
 # Network
 ping PROXMOX_IP
-ping 192.168.11.1  # Or your gateway
-traceroute 192.168.11.254
+ping 192.168.1.1  # Or your gateway
+traceroute 192.168.1.254
 ```
 
 ---

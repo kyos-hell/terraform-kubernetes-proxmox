@@ -6,7 +6,7 @@
   vars:
     kubernetes_version: "1.29"              # version stable récente
     kubeadm_kubernetes_version: "1.29.0-*"  # format des paquets apt
-    pod_network_cidr: "10.244.0.0/16"       # pour Flannel (CNI)
+    pod_network_cidr: "192.168.0.0/16"       # pour Calico (CNI)
   tasks:
     - name: Ne rien faire sur la machine ansible-01
       ansible.builtin.meta: end_host
@@ -140,8 +140,8 @@
   hosts: k8s-master-01
   become: true
   vars:
-    pod_network_cidr: "10.244.0.0/16"
-    flannel_manifest_url: "https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
+    pod_network_cidr: "192.168.0.0/16"
+    calico_manifest_url: "https://docs.projectcalico.org/manifests/calico.yaml"
   tasks:
     - name: Initialiser le control-plane avec kubeadm
       ansible.builtin.command: >
@@ -177,18 +177,18 @@
       ansible.builtin.set_fact:
         join_command: "{{ kubeadm_join_cmd.stdout }}"
 
-    # ------- Installation du CNI Flannel -------
-    - name: Télécharger le manifest Flannel
+    # ------- Installation du CNI Calico -------
+    - name: Télécharger le manifest Calico
       ansible.builtin.get_url:
-        url: "{{ flannel_manifest_url }}"
-        dest: /tmp/kube-flannel.yml
+        url: "{{ calico_manifest_url }}"
+        dest: /tmp/calico.yaml
         mode: '0644'
 
-    - name: Appliquer le CNI Flannel
+    - name: Appliquer le CNI Calico
       become: true
       become_user: ubuntu
       ansible.builtin.command: >
-        kubectl apply -f /tmp/kube-flannel.yml
+        kubectl apply -f /tmp/calico.yaml
       environment:
         KUBECONFIG: /home/ubuntu/.kube/config
 
@@ -208,3 +208,20 @@
       ansible.builtin.command: "{{ hostvars[master_host].join_command }} --v=5"
       args:
         creates: /etc/kubernetes/kubelet.conf
+
+
+# 4. Installer Helm sur le master une fois que les workers ont rejoint
+- name: Installer Helm sur le master
+  hosts: k8s-master-01
+  become: true
+  tasks:
+    - name: Installer Helm (dernière version) si absent
+      ansible.builtin.shell: |
+        LATEST_TAG=$(curl -s https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        curl -Lo helm.tar.gz "https://get.helm.sh/helm-${LATEST_TAG}-linux-amd64.tar.gz"
+        tar -zxvf helm.tar.gz
+        mv linux-amd64/helm /usr/local/bin/helm
+        chmod +x /usr/local/bin/helm
+        rm -rf helm.tar.gz linux-amd64
+      args:
+        creates: /usr/local/bin/helm

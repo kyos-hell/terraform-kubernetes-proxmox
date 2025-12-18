@@ -1,3 +1,14 @@
+# Release: v-0.0.1
+
+**New in v-0.0.1 (vs v-0)**
+
+- Replaced Flannel with **Calico** as the default CNI so NetworkPolicy can be enforced for application-level network controls.
+- Added **Helm** installation on the master node to simplify chart-based deployments and lifecycle management.
+- Updated default Pod network CIDR to `192.168.0.0/16` to match the Calico manifest used by the playbook.
+- Documentation updated: `docs/ansible.md` and `README.md` now mention Calico and Helm, and include migration notes.
+
+> Upgrade note: switching CNI is not in-place — teardown or reset existing clusters before migrating from Flannel to Calico.
+
 # Terraform + Kubernetes on Proxmox — Learning Project
 
 ![Terraform](https://img.shields.io/badge/Terraform-1.0+-623CE4?logo=terraform&logoColor=white)
@@ -198,6 +209,17 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 | **kubeadm** | 1.29 | Kubernetes bootstrap utility |
 
 ---
+
+## 📝 Release v-0.0.1
+
+- **Calico CNI:** Replaced Flannel with Calico as the default CNI to enable NetworkPolicy enforcement for application-level network controls.
+- **Helm:** The Ansible playbook now installs Helm on the master node to simplify chart-based deployments and management.
+- **Pod network CIDR:** Default `pod_network_cidr` updated to `192.168.0.0/16` to work with the Calico manifest used by the playbook.
+
+Upgrade notes:
+- If you previously deployed the cluster with Flannel, teardown or reset your cluster before switching to Calico (CNI changes are not in-place).
+- Review `ansible/playbook.yml` for the updated plays and test in a disposable environment before applying on production.
+
 
 ## 🎓 Learning Outcomes
 

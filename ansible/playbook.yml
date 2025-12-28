@@ -1,4 +1,10 @@
 ---
+# Ansible playbook : installation Kubernetes + Calico VXLAN (Calico v3.29.1)
+# Modifié pour déployer Calico en overlay VXLAN, IPPool 10.233.64.0/18, blockSize /26, natOutgoing: true
+# - applique le manifest Calico v3.29
+# - patch le DaemonSet calico-node pour fixer FELIX_VXLANVNI / FELIX_VXLANPORT
+# - crée un IPPool Calico personnalisé (vxlanMode: Always, ipipMode: Never, blockSize: 26)
+
 # 1. Préparation de tous les noeuds (master + workers)
 - name: Préparation des noeuds Kubernetes
   hosts: all
@@ -6,7 +12,9 @@
   vars:
     kubernetes_version: "1.29"              # version stable récente
     kubeadm_kubernetes_version: "1.29.0-*"  # format des paquets apt
-    pod_network_cidr: "192.168.0.0/16"       # pour Calico (CNI)
+    pod_network_cidr: "10.233.64.0/18"      # pour Calico (CNI) - correspond au cluster fonctionnel demandé
+    # Valeur globale par défaut, utilisable si non redéfinie plus bas
+    calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml"
   tasks:
     - name: Ne rien faire sur la machine ansible-01
       ansible.builtin.meta: end_host
@@ -124,9 +132,9 @@
     - name: Installer kubelet, kubeadm, kubectl
       ansible.builtin.apt:
         name:
-          - kubelet={{ kubeadm_kubernetes_version }}
-          - kubeadm={{ kubeadm_kubernetes_version }}
-          - kubectl={{ kubeadm_kubernetes_version }}
+          - "kubelet={{ kubeadm_kubernetes_version }}"
+          - "kubeadm={{ kubeadm_kubernetes_version }}"
+          - "kubectl={{ kubeadm_kubernetes_version }}"
         state: present
         update_cache: true
 
@@ -140,8 +148,8 @@
   hosts: k8s-master-01
   become: true
   vars:
-    pod_network_cidr: "192.168.0.0/16"
-    calico_manifest_url: "https://docs.projectcalico.org/manifests/calico.yaml"
+    pod_network_cidr: "{{ hostvars['k8s-master-01']['pod_network_cidr'] | default('10.233.64.0/18') }}"
+    calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml"
   tasks:
     - name: Initialiser le control-plane avec kubeadm
       ansible.builtin.command: >
@@ -177,21 +185,168 @@
       ansible.builtin.set_fact:
         join_command: "{{ kubeadm_join_cmd.stdout }}"
 
-    # ------- Installation du CNI Calico -------
-    - name: Télécharger le manifest Calico
+# ------- Préparation des nœuds pour Calico -------
+- name: Préparer les nœuds pour Calico (création hostPath + pré-pull images)
+  hosts: all
+  become: true
+  tasks:
+    - name: Ne rien faire sur ansible-01
+      ansible.builtin.meta: end_host
+      when: inventory_hostname == "ansible-01"
+
+    - name: Créer hostPath requis par Calico (idempotent)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/calico
+        - /var/run/calico
+        - /var/run/bird
+        - /var/run/nodeagent
+        - /var/log/calico/cni
+        - /opt/cni/bin
+        - /var/lib/cni/networks
+        - /etc/cni/net.d
+
+    - name: Pré-puller images Calico et local-path si possible
+      ansible.builtin.shell: |
+        if command -v crictl >/dev/null 2>&1; then
+          crictl pull docker.io/calico/cni:v3.29.0 || true
+          crictl pull docker.io/calico/node:v3.29.0 || true
+          crictl pull docker.io/rancher/local-path-provisioner:v0.0.32 || true
+        elif command -v ctr >/dev/null 2>&1; then
+          ctr -n k8s.io images pull docker.io/calico/cni:v3.29.0 || true
+          ctr -n k8s.io images pull docker.io/calico/node:v3.29.0 || true
+          ctr -n k8s.io images pull docker.io/rancher/local-path-provisioner:v0.0.32 || true
+        elif command -v docker >/dev/null 2>&1; then
+          docker pull docker.io/calico/cni:v3.29.0 || true
+          docker pull docker.io/calico/node:v3.29.0 || true
+          docker pull docker.io/rancher/local-path-provisioner:v0.0.32 || true
+        else
+          echo "No supported runtime found for pre-pull" >&2
+        fi
+      args:
+        warn: false
+
+    - name: Attendre 5s pour propagation des hostPath sur les nœuds
+      ansible.builtin.pause:
+        seconds: 5
+      when: inventory_hostname == "k8s-master-01"
+
+# ------- Installation du CNI Calico (uniquement sur master) -------
+- name: Installer et configurer Calico CNI
+  hosts: k8s-master-01
+  become: true
+  vars:
+    calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/calico.yaml"
+  tasks:
+    - name: Télécharger le manifest Calico v3.29
       ansible.builtin.get_url:
         url: "{{ calico_manifest_url }}"
-        dest: /tmp/calico.yaml
+        dest: /tmp/calico-v3.29.yaml
         mode: '0644'
 
-    - name: Appliquer le CNI Calico
+    - name: Appliquer le manifest Calico v3.29
       become: true
       become_user: ubuntu
       ansible.builtin.command: >
-        kubectl apply -f /tmp/calico.yaml
+        kubectl apply -f /tmp/calico-v3.29.yaml
       environment:
         KUBECONFIG: /home/ubuntu/.kube/config
 
+    - name: Attendre le DaemonSet calico-node ready
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n kube-system rollout status daemonset/calico-node --timeout=180s
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Fixer les variables d'environnement FELIX_VXLANVNI et FELIX_VXLANPORT sur calico-node
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n kube-system set env daemonset/calico-node FELIX_VXLANVNI=4096 FELIX_VXLANPORT=4789
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Attendre que les CRDs Calico soient disponibles
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..40}; do
+          if kubectl api-resources | grep -q "ippools.*projectcalico"; then
+            echo "IPPool resource is available in API"
+            exit 0
+          fi
+          echo "Waiting for IPPool resource in API... (attempt $i/40)"
+          sleep 2
+        done
+        echo "Timeout waiting for IPPool API resource"
+        exit 1
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      retries: 3
+      delay: 5
+
+    - name: Attendre que le CRD IPPool soit établi (Established condition)
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..30}; do
+          STATUS=$(kubectl get crd ippools.crd.projectcalico.org -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)
+          if [ "$STATUS" = "True" ]; then
+            echo "IPPool CRD is Established"
+            exit 0
+          fi
+          echo "Waiting for IPPool CRD to be Established... (attempt $i/30)"
+          sleep 2
+        done
+        exit 1
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Invalider le cache de découverte kubectl
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        rm -rf ~/.kube/cache/discovery
+        kubectl api-resources > /dev/null 2>&1
+        sleep 3
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Créer le fichier IPPool manifest
+      ansible.builtin.copy:
+        dest: /tmp/calico-ippool.yaml
+        content: |
+          apiVersion: crd.projectcalico.org/v1
+          kind: IPPool
+          metadata:
+            name: default-ipv4-ippool
+          spec:
+            cidr: 10.233.64.0/18
+            ipipMode: Never
+            vxlanMode: Always
+            natOutgoing: true
+            blockSize: 26
+            nodeSelector: all()
+        mode: '0644'
+
+    - name: Appliquer IPPool Calico (VXLAN overlay, /18 cidr, /26 blocks, natOutgoing true)
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl apply -f /tmp/calico-ippool.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: ippool_result
+      retries: 5
+      delay: 10
+      until: ippool_result.rc == 0
+
+    - name: Vérifier que l'IPPool a bien été créée
+      become_user: ubuntu
+      ansible.builtin.command: kubectl get ippool default-ipv4-ippool -o yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: ippool_check
+      failed_when: "'default-ipv4-ippool' not in ippool_check.stdout"
 
 # 3. Join des workers
 - name: Ajouter les workers au cluster
@@ -225,3 +380,464 @@
         rm -rf helm.tar.gz linux-amd64
       args:
         creates: /usr/local/bin/helm
+
+    - name: Vérifier si la StorageClass local-path existe
+      become_user: ubuntu
+      ansible.builtin.shell: kubectl get storageclass local-path -o name
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: local_path_sc
+      failed_when: false
+      changed_when: false
+      run_once: true
+      when: inventory_hostname == "k8s-master-01"
+
+    - name: Télécharger le manifest local-path-provisioner
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml"
+        dest: /tmp/local-path-storage.yaml
+        mode: '0644'
+      run_once: true
+      when: inventory_hostname == "k8s-master-01"
+
+    - name: Modifier reclaimPolicy dans le manifest local-path vers Retain
+      become: true
+      ansible.builtin.replace:
+        path: /tmp/local-path-storage.yaml
+        regexp: 'reclaimPolicy:\s*Delete'
+        replace: 'reclaimPolicy: Retain'
+        backup: yes
+      run_once: true
+      when: inventory_hostname == "k8s-master-01"
+
+    - name: Vérifier que reclaimPolicy a été modifié dans le manifest local-path
+      become: true
+      ansible.builtin.shell: grep -E "reclaimPolicy:\s*Retain" /tmp/local-path-storage.yaml
+      register: sc_check
+      failed_when: sc_check.rc != 0
+      run_once: true
+      when: inventory_hostname == "k8s-master-01"
+
+    - name: Installer le provisioner local-path (Rancher) si absent (appliquer manifest modifié)
+      become_user: ubuntu
+      ansible.builtin.command: >
+        kubectl apply -f /tmp/local-path-storage.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      when: local_path_sc.rc != 0 and inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: Forcer l'image du deployment local-path-provisioner vers v0.0.32 (idempotent)
+      become_user: ubuntu
+      ansible.builtin.shell: >
+        kubectl -n local-path-storage set image deployment/local-path-provisioner local-path-provisioner=rancher/local-path-provisioner:v0.0.32 || true
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      when: inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: Ajouter toleration control-plane au deployment local-path-provisioner
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n local-path-storage patch deployment local-path-provisioner --type=json -p='[
+          {"op": "add", "path": "/spec/template/spec/tolerations", "value": [
+            {"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"},
+            {"key": "node-role.kubernetes.io/master", "operator": "Exists", "effect": "NoSchedule"}
+          ]}
+        ]' || true
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      when: inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: Attendre le rollout du deployment local-path-provisioner (tolérant, collecte de diagnostics en cas d'échec)
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n local-path-storage rollout status deployment/local-path-provisioner --timeout=300s
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: local_path_rollout
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: If rollout failed, collect local-path deployment diagnostics
+      when: local_path_rollout is defined and local_path_rollout.rc != 0 and inventory_hostname == "k8s-master-01"
+      block:
+        - name: Get pods in local-path-storage
+          become_user: ubuntu
+          ansible.builtin.shell: kubectl -n local-path-storage get pods -o wide
+          environment:
+            KUBECONFIG: /home/ubuntu/.kube/config
+          register: local_path_pods
+
+        - name: Describe deployment local-path-provisioner
+          become_user: ubuntu
+          ansible.builtin.shell: kubectl -n local-path-storage describe deployment/local-path-provisioner
+          environment:
+            KUBECONFIG: /home/ubuntu/.kube/config
+          register: local_path_deploy_desc
+
+        - name: Get events in local-path-storage
+          become_user: ubuntu
+          ansible.builtin.shell: kubectl -n local-path-storage get events --sort-by='.lastTimestamp'
+          environment:
+            KUBECONFIG: /home/ubuntu/.kube/config
+          register: local_path_events
+
+        - name: For each pod, describe and fetch logs (all containers)
+          become_user: ubuntu
+          ansible.builtin.shell: |
+            for p in $(kubectl -n local-path-storage get pods -o name | sed 's/^pod\\///'); do
+              echo '==== POD: ' $p '===='
+              kubectl -n local-path-storage describe pod $p || true
+              for c in $(kubectl -n local-path-storage get pod $p -o jsonpath='{.spec.containers[*].name}'); do
+                echo '---- LOGS for container:' $c '----'
+                kubectl -n local-path-storage logs $p -c $c --tail=200 || true
+              done
+            done
+          environment:
+            KUBECONFIG: /home/ubuntu/.kube/config
+          register: local_path_pod_details
+
+        - name: Show diagnostics
+          ansible.builtin.debug:
+            msg:
+              - "rollout: {{ local_path_rollout.stdout | default('') }}"
+              - "pods: {{ local_path_pods.stdout | default('') }}"
+              - "deployment_describe: {{ local_path_deploy_desc.stdout | default('') }}"
+              - "events: {{ local_path_events.stdout | default('') }}"
+              - "pod_details: {{ local_path_pod_details.stdout | default('') }}"
+
+        - name: Fail with diagnostic summary
+          ansible.builtin.fail:
+            msg: "local-path-provisioner rollout failed; see diagnostics above"
+
+    - name: Vérifier la reclaimPolicy de la StorageClass local-path
+      become_user: ubuntu
+      ansible.builtin.shell: >
+        kubectl get storageclass local-path -o jsonpath='{.reclaimPolicy}'
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: local_path_reclaim
+      failed_when: false
+      changed_when: false
+      run_once: true
+      when: inventory_hostname == "k8s-master-01"
+
+    - name: Essayer de remplacer la StorageClass local-path (force replace) si elle n'est pas Retain
+      become_user: ubuntu
+      ansible.builtin.shell: >
+        kubectl get storageclass local-path -o yaml | sed '/^status:/,$d' | sed 's/reclaimPolicy: Delete/reclaimPolicy: Retain/' | kubectl replace --force -f -
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: sc_replace_try
+      failed_when: false
+      changed_when: sc_replace_try.rc == 0
+      when: local_path_reclaim.stdout != 'Retain' and inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: Recréer la StorageClass local-path avec reclaimPolicy=Retain (fallback si replace échoue)
+      become_user: ubuntu
+      ansible.builtin.shell: >
+        kubectl get storageclass local-path -o yaml | sed '/^status:/,$d' | sed 's/reclaimPolicy: Delete/reclaimPolicy: Retain/' > /tmp/local-path-sc.yaml && kubectl delete storageclass local-path --ignore-not-found && kubectl apply -f /tmp/local-path-sc.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: sc_recreate
+      failed_when: sc_recreate.rc != 0
+      when: sc_replace_try is defined and sc_replace_try.rc is defined and sc_replace_try.rc != 0 and local_path_reclaim.stdout != 'Retain' and inventory_hostname == "k8s-master-01"
+      run_once: true
+
+    - name: Vérifier que reclaimPolicy est bien Retain (avec retries)
+      become_user: ubuntu
+      ansible.builtin.shell: kubectl get storageclass local-path -o jsonpath='{.reclaimPolicy}'
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: local_path_reclaim_after
+      retries: 6
+      delay: 5
+      until: local_path_reclaim_after.stdout == 'Retain'
+      failed_when: local_path_reclaim_after.stdout != 'Retain'
+      when: inventory_hostname == "k8s-master-01"
+      run_once: true
+
+# 5. Installation de Metrics Server
+- name: Installer Metrics Server
+  hosts: k8s-master-01
+  become: true
+  tasks:
+    - name: Vérifier si metrics-server est déjà installé
+      become_user: ubuntu
+      ansible.builtin.shell: kubectl get deployment metrics-server -n kube-system -o name
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metrics_server_check
+      failed_when: false
+      changed_when: false
+
+    - name: Télécharger le manifest metrics-server
+      ansible.builtin.get_url:
+        url: "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+        dest: /tmp/metrics-server-components.yaml
+        mode: '0644'
+      when: metrics_server_check.rc != 0
+
+    - name: Appliquer le manifest metrics-server
+      become_user: ubuntu
+      ansible.builtin.command: kubectl apply -f /tmp/metrics-server-components.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      when: metrics_server_check.rc != 0
+
+    - name: Attendre que le deployment metrics-server soit créé
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..30}; do
+          if kubectl get deployment metrics-server -n kube-system -o name 2>/dev/null; then
+            exit 0
+          fi
+          sleep 2
+        done
+        exit 1
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      when: metrics_server_check.rc != 0
+
+    - name: Patcher metrics-server avec les flags kubelet-insecure-tls
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+          {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-insecure-tls"},
+          {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname"}
+        ]'
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metrics_patch
+      failed_when: false
+      changed_when: "'patched' in metrics_patch.stdout"
+
+    - name: Attendre le rollout de metrics-server
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metrics_rollout
+      retries: 3
+      delay: 10
+      until: metrics_rollout.rc == 0
+
+    - name: Vérifier que metrics-server fonctionne
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..12}; do
+          if kubectl top nodes 2>/dev/null; then
+            echo "Metrics server is working!"
+            exit 0
+          fi
+          echo "Waiting for metrics to be available... (attempt $i/12)"
+          sleep 10
+        done
+        echo "Warning: Metrics not yet available, but server is deployed"
+        exit 0
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metrics_test
+      changed_when: false
+
+    # ------- Installation MetalLB -------
+    - name: Ajouter le repo Helm MetalLB
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm repo add metallb https://metallb.github.io/metallb
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: helm_add
+      changed_when: "'has been added' in helm_add.stdout"
+      failed_when: false
+
+    - name: Mettre à jour les repos Helm
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm repo update
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Installer MetalLB via Helm
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm install metallb metallb/metallb \
+          --namespace metallb-system \
+          --create-namespace
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: helm_install
+      changed_when: "'deployed successfully' in helm_install.stdout or 'STATUS: deployed' in helm_install.stdout"
+      failed_when: helm_install.rc != 0 and 'already exists' not in helm_install.stderr
+
+    - name: Attendre le déploiement de MetalLB
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n metallb-system rollout status deployment/metallb-controller --timeout=120s
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_rollout
+      retries: 3
+      delay: 10
+      until: metallb_rollout.rc == 0
+
+    - name: Créer la configuration MetalLB (IPAddressPool et L2Advertisement)
+      become_user: ubuntu
+      ansible.builtin.copy:
+        content: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: default
+            namespace: metallb-system
+          spec:
+            addresses:
+            - 192.168.1.21-192.168.1.31
+
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: default
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+            - default
+        dest: /tmp/metallb-config.yaml
+        mode: '0644'
+
+    - name: Appliquer la configuration MetalLB
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl apply -f /tmp/metallb-config.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_config
+      changed_when: "'created' in metallb_config.stdout or 'configured' in metallb_config.stdout"
+
+    # ------- Vérification robuste de MetalLB -------
+    - name: Vérifier que les pods MetalLB controller et speaker sont en Running
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..30}; do
+          echo "Checking MetalLB pods (attempt $i/30)..."
+          CONTROLLER=$(kubectl -n metallb-system get pods -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+          SPEAKER=$(kubectl -n metallb-system get pods -l app.kubernetes.io/component=speaker -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+          
+          if [[ "$CONTROLLER" == "Running" && "$SPEAKER" == "Running" ]]; then
+            echo "MetalLB controller and speaker are Running!"
+            exit 0
+          fi
+          
+          echo "Controller: $CONTROLLER, Speaker: $SPEAKER"
+          sleep 5
+        done
+        echo "ERROR: MetalLB pods did not reach Running state"
+        exit 1
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_pods_check
+
+    - name: Vérifier que l'IPAddressPool est créé et actif
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        for i in {1..15}; do
+          echo "Checking IPAddressPool status (attempt $i/15)..."
+          STATUS=$(kubectl -n metallb-system get ipaddresspool default -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)
+          
+          if [[ "$STATUS" == "True" ]]; then
+            echo "IPAddressPool is available!"
+            exit 0
+          fi
+          
+          echo "IPAddressPool status: $STATUS"
+          sleep 3
+        done
+        echo "ERROR: IPAddressPool did not become available"
+        exit 1
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_ippool_check
+
+    - name: Vérifier que L2Advertisement est créé
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n metallb-system get l2advertisement default -o jsonpath='{.metadata.name}' | grep -q default
+        if [ $? -eq 0 ]; then
+          echo "L2Advertisement is present"
+          exit 0
+        else
+          echo "ERROR: L2Advertisement is missing"
+          exit 1
+        fi
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_l2_check
+
+    - name: Afficher l'état global de MetalLB
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        echo "=== MetalLB Status ==="
+        kubectl -n metallb-system get pods
+        echo ""
+        echo "=== IPAddressPool Status ==="
+        kubectl -n metallb-system get ipaddresspool
+        echo ""
+        echo "=== L2Advertisement Status ==="
+        kubectl -n metallb-system get l2advertisement
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: metallb_status
+      changed_when: false
+
+    - name: Afficher le résumé MetalLB
+      ansible.builtin.debug:
+        msg: "{{ metallb_status.stdout }}"
+
+    # ------- Installation Nginx Ingress -------
+    - name: Ajouter le repo Helm ingress-nginx
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: helm_add_nginx
+      changed_when: "'has been added' in helm_add_nginx.stdout"
+      failed_when: false
+
+    - name: Mettre à jour les repos Helm
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm repo update
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Installer nginx-ingress via Helm avec LoadBalancer
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        helm install nginx-ingress ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.service.type=LoadBalancer
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: helm_install_nginx
+      changed_when: "'deployed successfully' in helm_install_nginx.stdout or 'STATUS: deployed' in helm_install_nginx.stdout"
+      failed_when: helm_install_nginx.rc != 0 and 'already exists' not in helm_install_nginx.stderr
+
+    - name: Attendre le déploiement de nginx-ingress
+      become_user: ubuntu
+      ansible.builtin.shell: |
+        kubectl -n ingress-nginx rollout status deployment/nginx-ingress-ingress-nginx-controller --timeout=120s
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: nginx_rollout
+      retries: 3
+      delay: 10
+      until: nginx_rollout.rc == 0

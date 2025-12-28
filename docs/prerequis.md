@@ -314,11 +314,11 @@ These are **NOT** installed locally; they are deployed to VMs via:
 - **Ansible playbook** (kubeadm, kubectl)
 
 **Installed on VMs**:
-- `containerd` 1.x
-- `kubeadm` 1.29.x
-- `kubectl` 1.29.x
-- `kubelet` 1.29.x
-- `Flannel` CNI
+  - `containerd` 1.x
+  - `kubeadm` 1.29.x
+  - `kubectl` 1.29.x
+  - `kubelet` 1.29.x
+  - `Calico` CNI (configured for VXLAN overlay by default)
 
 ---
 
@@ -343,17 +343,14 @@ These are **NOT** installed locally; they are deployed to VMs via:
 | k8s-worker-03 | 192.168.1.14 | Worker |
 
 #### Pod Network (Kubernetes Overlay)
-- **Pod CIDR**: 10.244.0.0/16 (configured in Ansible playbook)
-- **Master Pod Subnet**: 10.244.1.0/24
-- **Worker 1 Pod Subnet**: 10.244.2.0/24
-- **Worker 2 Pod Subnet**: 10.244.3.0/24
-- **Worker 3 Pod Subnet**: 10.244.4.0/24
-- **CNI**: Flannel (auto-deployed via Ansible)
+- **Pod CIDR**: 10.233.64.0/18 (Calico IPPool configured by Ansible)
+- **IPPool blockSize**: /26 (Calico will allocate /26 blocks to nodes by default)
+- **CNI**: Calico (VXLAN overlay — Ansible creates an IPPool with vxlanMode: Always)
 
 ### Network Requirements
 
 #### 1. **Connectivity Between VMs**
-   - All VMs must reach each other via host network (192.168.11.0/24)
+  - All VMs must reach each other via host network (192.168.1.0/24)
    - No firewall rules should block inter-VM traffic
    - Test with: `ping` between VMs
 
@@ -380,13 +377,13 @@ These are **NOT** installed locally; they are deployed to VMs via:
    - Domain: `training.local` (configurable)
    - Each VM FQDN: `{name}.{domain}` (e.g., `ansible-01.training.local`)
    - Configure in local `/etc/hosts` (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
-     ```
-     192.168.11.10 ansible-01.training.local ansible-01
-     192.168.11.11 k8s-master-01.training.local k8s-master-01
-     192.168.11.12 k8s-worker-01.training.local k8s-worker-01
-     192.168.11.13 k8s-worker-02.training.local k8s-worker-02
-     192.168.11.14 k8s-worker-03.training.local k8s-worker-03
-     ```
+    ```
+    192.168.1.10 ansible-01.training.local ansible-01
+    192.168.1.11 k8s-master-01.training.local k8s-master-01
+    192.168.1.12 k8s-worker-01.training.local k8s-worker-01
+    192.168.1.13 k8s-worker-02.training.local k8s-worker-02
+    192.168.1.14 k8s-worker-03.training.local k8s-worker-03
+    ```
 
 ### Port Requirements
 
@@ -397,7 +394,7 @@ These are **NOT** installed locally; they are deployed to VMs via:
 | Kubernetes API | 6443 | HTTPS | All nodes + local | Master | K8s control plane |
 | kubelet | 10250 | HTTPS | Master + nodes | Nodes | Node communication |
 | etcd | 2379-2380 | TCP | Master | Master | State store |
-| Flannel VXLAN | 8472 | UDP | All nodes | All nodes | Pod overlay network |
+| Calico VXLAN | 4789 | UDP | All nodes | All nodes | Calico VXLAN overlay (FELIX_VXLANPORT)
 | Service NodePort | 30000-32767 | TCP/UDP | External | All nodes | Kubernetes services |
 
 ---
@@ -833,9 +830,9 @@ ls /var/lib/vz/snippets/ | grep cloud-init
   - All planned IP addresses available
 
 - [ ] **IP address conflicts checked**
-  - No existing VMs using 192.168.11.10-14
+  - No existing VMs using 192.168.1.10-14
   - No DHCP conflicts on subnet
-  - Gateway 192.168.11.254 reachable
+  - Gateway 192.168.1.1 reachable
 
 ### Pre-Apply Verification
 
@@ -1110,12 +1107,12 @@ ansible-inventory --list
 
 # Local SSH
 ssh-add -l
-ssh -i ./secrets/ansible_cluster_id_ed25519 ubuntu@192.168.11.10
+ssh -i ./secrets/ansible_cluster_id_ed25519 ubuntu@192.168.1.10
 
 # Network
 ping PROXMOX_IP
-ping 192.168.11.1  # Or your gateway
-traceroute 192.168.11.254
+ping 192.168.1.1  # Or your gateway
+traceroute 192.168.1.1
 ```
 
 ---
@@ -1129,7 +1126,7 @@ traceroute 192.168.11.254
 - [Kubernetes Official Docs](https://kubernetes.io/docs/)
 - [kubeadm Setup Guide](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/)
 - [Containerd Documentation](https://github.com/containerd/containerd)
-- [Flannel CNI](https://github.com/flannel-io/flannel)
+- [Calico CNI](https://github.com/projectcalico/calico)
 - [cloud-init Documentation](https://cloud-init.io/)
 - [SSH Best Practices](https://infosec.mozilla.org/guidelines/openssh)
 

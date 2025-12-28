@@ -65,6 +65,18 @@ High-level flow implemented by `ansible/playbook.yml`:
 3. Join worker nodes
    - Execute the previously captured `kubeadm join` command on each worker (guarded to avoid re-running if node already configured)
 
+What's new in release v-0.0.2
+This project now includes an enhanced Ansible playbook that deploys Calico in VXLAN overlay mode and several additional cluster components and hardening steps. Key additions:
+
+- Calico VXLAN IPPool: the playbook deploys Calico and creates a custom `IPPool` with `cidr: 10.233.64.0/18`, `vxlanMode: Always`, `ipipMode: Never`, `natOutgoing: true` and `blockSize: 26` so the cluster uses an overlay VXLAN network assigned from the specified CIDR.
+- Calico tuning: after applying the Calico manifest the playbook patches the `calico-node` DaemonSet to set `FELIX_VXLANVNI` and `FELIX_VXLANPORT` to stable values, and waits for CRDs (IPPools) to be available before applying the IPPool.
+- Node preparation for Calico: creates required hostPaths, pre-pulls Calico/local-path images (supports `crictl`, `ctr`, `docker`) and adds short pauses and retries to improve first-boot reliability.
+- Storage: the playbook installs the Rancher `local-path-provisioner`, forces the image to a known version, and enforces `reclaimPolicy: Retain` on the StorageClass (with safe replace/recreate and diagnostic steps on failure).
+- Robustness: many installation steps include retries, `run_once` semantics, discovery cache invalidation, and diagnostic collection on failures to make bootstrap more reliable.
+- Additional add-ons: automated installation and basic verification of `metrics-server`, `MetalLB` (Helm), and `ingress-nginx` (Helm) with follow-up checks and example MetalLB IPAddressPool configuration.
+
+These changes aim to provide a more complete, production-like learning environment (overlay networking, LB, ingress, metrics, resilient storage), while keeping the playbook idempotent and safe to re-run for typical learning/testing scenarios.
+
 Key implementation notes from the provided playbook:
 - The playbook uses `become: true` at the plays level to run privileged tasks.
 - The playbook explicitly avoids acting on `ansible-01` using `ansible.builtin.meta: end_host`.
@@ -102,6 +114,35 @@ After a successful run, from the master node (or from a machine with admin kubec
 - Verify pods & CNI: kubectl get pods -A
 -- Confirm Calico pods: kubectl -n kube-system get pods -l k8s-app=calico-node
 -- Confirm Helm is installed: helm version
+
+Cluster add-ons (installed by the playbook)
+
+- **local-path-provisioner** (Rancher)
+  - Purpose: lightweight dynamic `StorageClass` for local volumes in lab environments.
+  - Playbook notes: forces image `rancher/local-path-provisioner:v0.0.32` and ensures the StorageClass `local-path` has `reclaimPolicy: Retain`.
+  - Quick checks:
+    ```bash
+    kubectl -n local-path-storage get pods
+    kubectl get storageclass local-path -o yaml
+    ```
+
+- **metrics-server**
+  - Purpose: exposes resource usage (CPU/memory) via `kubectl top` and is useful for HPA and diagnostics.
+  - Playbook notes: installs upstream `components.yaml` and patches the deployment to include `--kubelet-insecure-tls` and preferred address types.
+  - Quick checks:
+    ```bash
+    kubectl -n kube-system get deployment metrics-server
+    kubectl top nodes || echo "metrics-server not ready yet"
+    ```
+
+- **ingress-nginx**
+  - Purpose: Kubernetes Ingress controller (NGINX) installed via Helm to provide HTTP routing into cluster services.
+  - Playbook notes: installed with `controller.service.type=LoadBalancer` so MetalLB can allocate an external IP for the controller service.
+  - Quick checks:
+    ```bash
+    kubectl -n ingress-nginx get pods
+    kubectl -n ingress-nginx get svc
+    ```
 
 Troubleshooting — common issues
 - SSH issues: ensure the public key provisioned by Terraform/cloud-init is present on each VM and the private key is on the Ansible control node at the path used in inventory.

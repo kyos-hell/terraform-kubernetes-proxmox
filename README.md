@@ -1,13 +1,15 @@
-# Release: v-0.0.1
+# Release: v-0.0.2
 
-**New in v-0.0.1 (vs v-0)**
+**New in v-0.0.2 (vs v-0.0.1)**
 
-- Replaced Flannel with **Calico** as the default CNI so NetworkPolicy can be enforced for application-level network controls.
-- Added **Helm** installation on the master node to simplify chart-based deployments and lifecycle management.
-- Updated default Pod network CIDR to `192.168.0.0/16` to match the Calico manifest used by the playbook.
-- Documentation updated: `docs/ansible.md` and `README.md` now mention Calico and Helm, and include migration notes.
+- Calico VXLAN overlay: the Ansible playbook now deploys Calico configured for a VXLAN overlay and creates a custom Calico `IPPool` (`cidr: 10.233.64.0/18`, `blockSize: 26`, `vxlanMode: Always`, `ipipMode: Never`, `natOutgoing: true`).
+- Calico tuning & robustness: the playbook patches the `calico-node` DaemonSet to set `FELIX_VXLANVNI`/`FELIX_VXLANPORT`, waits for Calico CRDs to be available, invalidates kubectl discovery cache, and adds retries/delays for reliable bootstrap.
+- Node preps & pre-pull: creates required hostPath directories for Calico, pre-pulls Calico and local-path images (supports `crictl`, `ctr`, `docker`) to speed startup and reduce image-pull flakiness.
+- Storage: enforces `reclaimPolicy: Retain` for the `local-path` StorageClass, pins the local-path provisioner image version, adds tolerations for control-plane if needed, and collects diagnostics on rollout failures.
+- Additional add-ons: automated installation and basic verification of `metrics-server`, `MetalLB` (via Helm) with a sample IPAddressPool, and `ingress-nginx` (via Helm) configured as `LoadBalancer`.
+- Documentation: `docs/ansible.md` updated with the new Calico VXLAN flow and add-on notes.
 
-> Upgrade note: switching CNI is not in-place — teardown or reset existing clusters before migrating from Flannel to Calico.
+> Upgrade note: the new overlay network and IPPool are not an in-place migration from prior CNI settings — tear down or reset existing clusters before switching to VXLAN Calico.
 
 # Terraform + Kubernetes on Proxmox — Learning Project
 
@@ -205,7 +207,7 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 | **Kubernetes** | 1.29 | Container orchestration |
 | **Ansible** | 2.9+ | Configuration management |
 | **containerd** | 1.x | Container runtime |
-| **Flannel** | latest | CNI (Pod networking) |
+| **Calico** | v3.29.x | CNI (Pod networking, NetworkPolicy, VXLAN overlay supported) |
 | **kubeadm** | 1.29 | Kubernetes bootstrap utility |
 
 ---

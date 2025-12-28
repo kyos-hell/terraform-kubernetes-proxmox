@@ -683,6 +683,24 @@ Terraform Config:
 
 ---
 
+
+## MetalLB — Playbook-Managed Address Range
+
+This project does not expose a Terraform/Ansible variable for the MetalLB address pool. The MetalLB `IPAddressPool` is rendered directly by the Ansible playbook.
+
+To change the MetalLB range, edit `ansible/playbook.yml` and modify the `addresses:` entry in the task named **"Créer la configuration MetalLB (IPAddressPool et L2Advertisement)"**. Example snippet in the playbook:
+
+```yaml
+spec:
+  addresses:
+  - 192.168.1.21-192.168.1.31
+```
+
+Notes:
+- Ensure the chosen range is on the same L2 network as your nodes when using L2 mode.
+- Avoid overlapping with DHCP or other static IP assignments.
+
+
 ## VM Definitions
 
 ### vms

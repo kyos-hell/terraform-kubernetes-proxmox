@@ -8,7 +8,7 @@ This guide will get you up and running with a fully automated Kubernetes cluster
 - 1× Ansible control node
 - 1× Kubernetes master node
 - 3× Kubernetes worker nodes
-- Full Flannel CNI networking
+- Calico CNI with VXLAN overlay networking (IPPool: 10.233.64.0/18)
 - Automated deployment via Terraform + Ansible
 
 ---
@@ -140,7 +140,7 @@ terraform apply tfplan
    - Install kubeadm, kubelet, kubectl
    - Initialize Kubernetes on master
    - Join workers to cluster
-   - Deploy Flannel CNI
+   - Deploy Calico CNI (VXLAN overlay) and create Calico IPPool
 
 5. **Output cluster information**
    - Master IP address
@@ -215,7 +215,27 @@ kubectl get pods -n kube-system
 # - kube-controller-manager-* (Controllers)
 # - kube-proxy-* (Networking)
 # - kube-scheduler-* (Scheduler)
-# - flannel-* (CNI plugin)
+# - calico-node-* (Calico CNI)
+# - metrics-server-* (optional, installed by playbook)
+# - local-path-provisioner-* (Storage provisioner)
+# - metallb-controller / metallb-speaker (if MetalLB installed)
+# - ingress-nginx-controller (if ingress installed)
+```
+
+Additional checks for add-ons:
+
+```bash
+# local-path
+kubectl -n local-path-storage get pods
+kubectl get storageclass local-path -o yaml
+
+# metrics-server
+kubectl -n kube-system get deployment metrics-server
+kubectl top nodes || echo "metrics not ready"
+
+# ingress-nginx
+kubectl -n ingress-nginx get pods
+kubectl -n ingress-nginx get svc
 ```
 
 ### 4. Test Networking
@@ -224,7 +244,7 @@ kubectl get pods -n kube-system
 # Check pod CIDR
 kubectl get nodes -o wide
 
-# Expected pod CIDR: 10.244.x.0/24
+# Expected pod CIDR: 10.233.64.0/18 (Calico IPPool allocation, blocks /26)
 
 # Deploy a test pod
 kubectl run test-pod --image=busybox -- sleep 3600
@@ -456,9 +476,9 @@ kubectl get nodes
    sudo systemctl status kubelet
    sudo journalctl -u kubelet -n 50
    ```
-3. Check Flannel pods:
+3. Check Calico pods:
    ```bash
-   kubectl get pods -n kube-system -l app=flannel
+   kubectl get pods -n kube-system -l k8s-app=calico-node
    ```
 
 ---
@@ -557,7 +577,7 @@ cat /var/log/ansible-playbook.log
 - [Terraform Documentation](https://www.terraform.io/docs)
 - [Kubernetes Official Docs](https://kubernetes.io/docs/)
 - [Proxmox Terraform Provider](https://registry.terraform.io/providers/bpg/proxmox/latest)
-- [Flannel CNI](https://github.com/flannel-io/flannel)
+- [Calico CNI](https://github.com/projectcalico/calico)
 - [Ansible Documentation](https://docs.ansible.com/)
 
 ---

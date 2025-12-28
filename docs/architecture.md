@@ -23,7 +23,7 @@ This project automates the complete deployment of a Kubernetes HA (High Availabi
 - **Ansible**: Kubernetes cluster configuration and initialization
 - **Containerd**: Container runtime
 - **Kubernetes 1.29**: Container orchestration
-- **Flannel**: CNI (Container Network Interface)
+- **Calico**: CNI (Container Network Interface, VXLAN overlay supported)
 
 ---
 
@@ -48,8 +48,8 @@ This project automates the complete deployment of a Kubernetes HA (High Availabi
          └───────────────────────┼──────────────────────┘
                                  │
                         ┌────────▼────────┐
-                        │  Flannel CNI     │
-                        │ Pod CIDR: 10.244 │
+                        │  Calico CNI (VXLAN) │
+                        │ Pod CIDR: 10.233.64.0/18 │
                         └──────────────────┘
 ```
 
@@ -123,7 +123,7 @@ projet-terraform-k8s/
 **Type**: Kubernetes Standard (1 master + N workers)  
 **Version**: 1.29  
 **CRI**: containerd 1.x  
-**CNI**: Flannel v0.x
+**CNI**: Calico v3.29.x (VXLAN overlay supported)
 
 #### Nodes
 
@@ -149,7 +149,15 @@ projet-terraform-k8s/
 - **containerd**: Container runtime
 
 #### Add-ons
-- **Flannel CNI**: Pod network overlay, Pod CIDR = 10.244.0.0/16
+- **Calico CNI**: Pod network overlay (VXLAN), IPPool CIDR = 10.233.64.0/18 (blockSize /26)
+
+Additional cluster add-ons installed by the Ansible playbook:
+
+- **local-path-provisioner** (Rancher): lightweight dynamic `StorageClass` for local volumes in lab environments. The playbook forces a known image version and ensures the `local-path` StorageClass has `reclaimPolicy: Retain`.
+
+- **metrics-server**: exposes cluster resource metrics (CPU/memory) consumed by nodes/pods and enables `kubectl top` and HPA use-cases. The playbook applies the upstream `components.yaml` and patches args for kubelet TLS/address preferences.
+
+- **ingress-nginx**: NGINX-based Ingress Controller deployed via Helm. Installed with `controller.service.type=LoadBalancer` so a MetalLB `LoadBalancer` IP can be assigned to the controller service in lab networks.
 
 ### Kubernetes Initialization Flow
 
@@ -163,10 +171,10 @@ projet-terraform-k8s/
    └── Install kubeadm/kubelet/kubectl
 
 2. MASTER INITIALIZATION
-   ├── kubeadm init --pod-network-cidr=10.244.0.0/16
+   ├── kubeadm init --pod-network-cidr=10.233.64.0/18
    ├── Generate admin.conf (kubeconfig)
    ├── Extract kubeadm token + join command
-   └── Deploy Flannel CNI (kube-flannel.yml)
+   └── Deploy Calico CNI (calico.yaml) and create IPPool
 
 3. WORKER JOIN
    └── kubeadm join --token ... (for each worker)
@@ -184,22 +192,20 @@ projet-terraform-k8s/
 └────────────────────────────────────────────┘
          │           │          │       │
     ┌────▼───┐  ┌───▼─────┐  ┌─▼─────┐ └─...
-    │Master  │  │ Worker1 │  │Worker2│
-    │10.244.1│  │10.244.2 │  │10.244.3│
+   │Master  │  │ Worker1 │  │Worker2│
+   │(Calico IPs)│  │(Calico IPs) │  │(Calico IPs)│
     └────┬───┘  └────┬────┘  └─┬─────┘
          │           │         │
     ┌────▼───────────▼─────────▼─────┐
-    │  Pod Network Overlay (Flannel)   │
-    │       CIDR: 10.244.0.0/16        │
+   │  Pod Network Overlay (Calico VXLAN)   │
+   │       CIDR: 10.233.64.0/18 (IPPool)  │
     └────────────────────────────────┘
 ```
 
-- **Host Network**: 192.168.1.0/24 (example, Proxmox VLAN)
-- **Pod Network**: 10.244.0.0/16 (Flannel overlay)
-  - Master subnets: 10.244.1.0/24
-  - Worker-1 subnet: 10.244.2.0/24
-  - Worker-2 subnet: 10.244.3.0/24
-  - etc.
+-- **Host Network**: 192.168.1.0/24 (example, Proxmox VLAN)
+-- **Pod Network**: 10.233.64.0/18 (Calico VXLAN IPPool)
+   - Calico allocates per-node blocks (e.g., /26) from the IPPool
+   - Master and worker pod ranges are assigned by Calico
 
 ---
 
@@ -320,7 +326,7 @@ ansible-playbook -i inventory.ini playbook.yml -v
 
 2. **Init Master**
    - `kubeadm init` → generate tokens
-   - Deploy Flannel CNI
+   - Deploy Calico CNI (calico.yaml) and create IPPool
 
 3. **Join Workers**
    - `kubeadm join` → join cluster
@@ -379,7 +385,10 @@ reboot_and_wait.sh
 | **containerd** | CRI Runtime | 1.x |
 | **Kubernetes** | Orchestration | 1.29 |
 | **kubeadm** | Cluster bootstrapping | 1.29.0-* |
-| **Flannel** | CNI | Latest |
+| **Calico** | CNI | v3.29.x |
+| **local-path-provisioner** | StorageClass (dynamic local PVs) | v0.0.32 (pin) |
+| **metrics-server** | Metrics for `kubectl top` / HPA | upstream release |
+| **ingress-nginx** | Ingress controller (NGINX) | helm chart (stable) |
 | **cloud-init** | VM bootstrap | Standard |
 
 ---
@@ -453,7 +462,7 @@ CLUSTER READY
 | cloud-init | Automatic | Completed by cloud-init |
 | kubeadm init | Variable | Control plane ready |
 | kubeadm join | Variable | Workers ready (minutes) |
-| Flannel CNI | Variable | Pods running |
+| Calico CNI | Variable | Pods running (calico-node DaemonSet)
 | Cluster ready | Variable | All nodes READY |
 
 ---
@@ -566,7 +575,7 @@ variable "additionnal_disks" = []  # List of additional disks
 - [Proxmox Terraform Provider](https://registry.terraform.io/providers/bpg/proxmox/latest)
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [Kubeadm Setup](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/)
-- [Flannel CNI](https://github.com/flannel-io/flannel)
+- [Calico CNI](https://github.com/projectcalico/calico)
 - [Ansible Documentation](https://docs.ansible.com/)
 - [cloud-init](https://cloud-init.io/)
 

@@ -706,6 +706,32 @@ cloud-init status --wait
 
 ---
 
+## MetalLB (LoadBalancer)
+
+MetalLB is installed by the Ansible playbook to provide `LoadBalancer`-type services (L2 mode).
+
+Important: this repository does NOT use an external `metallb_ip_range` variable. To change the IP range used by MetalLB, edit the playbook directly:
+
+- Open: `ansible/playbook.yml`
+- Find the task named **"Créer la configuration MetalLB (IPAddressPool et L2Advertisement)"**. In that task the `addresses` entry is written into `/tmp/metallb-config.yaml`.
+- Edit the range on the `- ` line, for example:
+
+```yaml
+spec:
+  addresses:
+  - 192.168.1.21-192.168.1.31
+```
+
+After modifying the playbook, re-run the playbook to apply the new configuration:
+
+```bash
+ansible-playbook -i inventory.ini playbook.yml
+```
+
+Notes:
+- Ensure the chosen range is on the same L2 network as your nodes (MetalLB L2 mode).
+- Do not overlap this range with DHCP or other static IP assignments on your network.
+
 ## State Management
 
 ### State File Locations

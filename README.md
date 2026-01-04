@@ -327,7 +327,7 @@ This project is a learning platform and welcomes improvements! Here are key area
 - [ ] **HA Kubernetes setup**: Configure multiple masters with load balancing (kube-vip, HAProxy)
 - [ ] **Persistent storage**: Implement local storage, NFS, or Ceph integration
 - [ ] **Monitoring stack**: Add Prometheus, Grafana, and Kubernetes monitoring
-- [ ] **Ingress controller**: Deploy NGINX or Traefik for external access
+- [x] **Ingress controller**: Deploy NGINX or Traefik for external access _(v0.0.3: NGINX Ingress Controller deployed)_
 - [ ] **CI/CD pipeline**: Add GitHub Actions or GitLab CI for automated deployments
 
 ### Medium-term Enhancements
@@ -335,15 +335,15 @@ This project is a learning platform and welcomes improvements! Here are key area
 - [ ] **Terraform modules marketplace**: Extract reusable modules for Proxmox VM, Kubernetes, etc.
 - [ ] **Remote state backend**: Implement S3 or Terraform Cloud for state management
 - [ ] **Secrets management**: Integrate HashiCorp Vault or sealed-secrets for production
-- [ ] **Configuration templates**: Add Helm charts for common Kubernetes workloads
+- [x] **Configuration templates**: Add Helm charts for common Kubernetes workloads _(v0.0.3: ArgoCD + Helm integration)_
 - [ ] **Cost analysis**: Implement cost tracking and optimization recommendations
 - [ ] **Disaster recovery**: Automated backup and restore procedures
 
 ### Long-term Vision
 
 - [ ] **Multi-cloud support**: Extend to AWS, Azure, GCP (not just Proxmox)
-- [ ] **GitOps workflow**: Implement with ArgoCD or Flux for declarative deployments
-- [ ] **Security hardening**: RBAC, network policies, pod security policies
+- [x] **GitOps workflow**: Implement with ArgoCD or Flux for declarative deployments _(v0.0.3: ArgoCD full integration)_
+- [x] **Security hardening**: RBAC, network policies, pod security policies _(v0.0.3: Comprehensive security audit & checklist)_
 - [ ] **Service mesh**: Integrate Istio or Linkerd for advanced networking
 - [ ] **Machine learning ops**: Add MLflow, Kubeflow for ML workloads
 - [ ] **Production-grade setup**: Full HA, backup, monitoring, compliance

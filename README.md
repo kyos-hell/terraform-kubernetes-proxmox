@@ -1,15 +1,33 @@
-# Release: v-0.0.2
+# Release: v-0.0.3
 
-**New in v-0.0.2 (vs v-0.0.1)**
+**New in v-0.0.3 (vs v-0.0.2)**
 
-- Calico VXLAN overlay: the Ansible playbook now deploys Calico configured for a VXLAN overlay and creates a custom Calico `IPPool` (`cidr: 10.233.64.0/18`, `blockSize: 26`, `vxlanMode: Always`, `ipipMode: Never`, `natOutgoing: true`).
-- Calico tuning & robustness: the playbook patches the `calico-node` DaemonSet to set `FELIX_VXLANVNI`/`FELIX_VXLANPORT`, waits for Calico CRDs to be available, invalidates kubectl discovery cache, and adds retries/delays for reliable bootstrap.
-- Node preps & pre-pull: creates required hostPath directories for Calico, pre-pulls Calico and local-path images (supports `crictl`, `ctr`, `docker`) to speed startup and reduce image-pull flakiness.
-- Storage: enforces `reclaimPolicy: Retain` for the `local-path` StorageClass, pins the local-path provisioner image version, adds tolerations for control-plane if needed, and collects diagnostics on rollout failures.
-- Additional add-ons: automated installation and basic verification of `metrics-server`, `MetalLB` (via Helm) with a sample IPAddressPool, and `ingress-nginx` (via Helm) configured as `LoadBalancer`.
-- Documentation: `docs/ansible.md` updated with the new Calico VXLAN flow and add-on notes.
+## 🔧 Major Features
+- **ArgoCD Integration**: Full ArgoCD deployment with automatic namespace creation, CRDs installation, pod health verification, and credential output (admin username/password retrieval).
+- **GitOps Workflow**: Integration with ArgoCD for Guacamole deployment via `argocd-guacamole-gitops` repository, supporting declarative application management and continuous deployment.
+- **Enhanced MetalLB Robustness**: improved status checks with `kubectl -n metallb-system get pods -l app.kubernetes.io/component=...` using proper label selectors; upgraded to use `helm upgrade --install` for idempotent Helm operations (replaces previous basic `helm install`).
+- **Helm Idempotency**: all Helm operations now use `helm upgrade --install` instead of standalone `install` to gracefully handle re-runs and updates; corrected error handling to skip existing releases.
+- **IPAddressPool Health Verification**: added robust status condition check (`Available=True`) to verify IPAddressPool readiness with retries and detailed logging.
+- **Nginx Ingress Helm Upgrade**: switched from `helm install` to `helm upgrade --install` for better re-run safety; improved error handling for already-existing releases.
+- **MetalLB Speaker Pod Detection**: enhanced pod ready check with explicit shell syntax (`[[ ]]`) and better logging for troubleshooting controller and speaker pod status.
+- **Guacamole GitOps Deployment**: automated clone of `argocd-guacamole-gitops` repository and manifest application; includes file existence check and deployment status logging.
+- **Better Error Messages & Debugging**: enhanced debug output for ArgoCD credentials, Helm operations, and deployment verification; includes structured informational messages for post-deployment steps.
 
-> Upgrade note: the new overlay network and IPPool are not an in-place migration from prior CNI settings — tear down or reset existing clusters before switching to VXLAN Calico.
+## 📝 Documentation & Code Quality
+- **Complete English Translation**: All Ansible playbook comments, task names, and descriptions translated from French to English for international audience
+- **Enhanced Documentation**: Improved ansible.cfg with vault configuration, cloud-init metadata field documentation, prerequis standardization
+- **Security Checklist**: Added comprehensive security audit files (SECURITY.md, SECURITY_CHECKLIST.txt) for public repository publishing
+- **Configuration Examples**: Enhanced ansible.cfg with vault identity list, stdout callback, and SSH multiplexing settings
+
+## 🔐 Security Improvements
+- **Security Documentation**: New [SECURITY.md](SECURITY.md) file with security review checklist and best practices
+- **Pre-publication Audit**: [SECURITY_CHECKLIST.txt](SECURITY_CHECKLIST.txt) for verifying sensitive data removal before pushing to public repositories
+- **Credential Anonymization**: Guide for anonymizing cluster IPs, hostnames, and other network details
+- **Secret Management**: Best practices for vault-encrypted variables and SSH key handling
+
+> **Upgrade note**: v0.0.3 introduces ArgoCD as a core component—ensure your cluster has sufficient resources (at least 4 CPUs, 4GB RAM for 3-node cluster + master). This release is designed for lab/learning environments with GitOps practices and is fully compatible with v0.0.2 cluster architecture.
+> 
+> **Security note**: Before pushing to a public repository, review [SECURITY.md](SECURITY.md) and use the [SECURITY_CHECKLIST.txt](SECURITY_CHECKLIST.txt) to verify all sensitive data is anonymized.
 
 # Terraform + Kubernetes on Proxmox — Learning Project
 
@@ -30,7 +48,7 @@ This project is designed as a **learning platform** for DevOps technologies, clo
 
 - **Learn Infrastructure-as-Code (IaC)**: Terraform patterns, state management, modular design
 - **Understand Cloud-init**: VM automation, automated configuration, user data scripting
-- **Master Kubernetes**: Cluster initialization with kubeadm, networking with Flannel, node bootstrapping
+- **Master Kubernetes**: Cluster initialization with kubeadm, networking with Calico VXLAN, node bootstrapping
 - **Practice Ansible**: Configuration management, playbook design, idempotence
 - **Implement SSH & Security**: Key management, secure credential handling, best practices
 - **Explore DevOps Workflows**: From infrastructure provisioning to application deployment
@@ -72,6 +90,8 @@ All documentation lives in the `docs/` directory. Below is a complete roadmap:
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
+| [**SECURITY.md**](SECURITY.md) | Security audit & best practices | Before publishing publicly |
+| [**SECURITY_CHECKLIST.txt**](SECURITY_CHECKLIST.txt) | Pre-publication security checklist | Repository owners |
 | [**secrets.md**](docs/secrets.md) | Credential & SSH key management | Security & compliance |
 | [**troubleshooting.md**](docs/troubleshooting.md) | Common issues & solutions | Problem-solving |
 
@@ -86,7 +106,7 @@ All documentation lives in the `docs/` directory. Below is a complete roadmap:
 - **SSH key** capability (Linux/macOS/WSL2 recommended)
 - **Ubuntu cloud image** template prepared in Proxmox
 
-For detailed setup, see [prerequis.md](docs/prerequis.md).
+For detailed setup, see [prerequis.md (French: Prerequisites & Setup)](docs/prerequis.md).
 
 ### 2. Clone & Initialize
 
@@ -138,6 +158,9 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 ```
 .
 ├── README.md                          # This file
+├── SECURITY.md                        # Security audit & checklist
+├── SECURITY_CHECKLIST.txt             # Pre-publication security verification
+├── .env.example                       # Environment variables template
 ├── .gitignore                         # Exclude secrets, state files
 ├── terraform.tfvars.example          # Configuration template
 │
@@ -166,7 +189,7 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 │   └── meta_data.tpl                # Metadata template
 │
 ├── ansible/
-│   ├── playbook.yml                 # Main Kubernetes configuration
+│   ├── playbook.yml                 # Main Kubernetes configuration (translated to English)
 │   └── inventory.ini                # Generated dynamically
 │
 ├── scripts/
@@ -176,12 +199,12 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 │   └── reboot_and_wait.sh           # Safe VM reboot utility
 │
 ├── secrets/
-│   ├── ansible_cluster_id_ed25519   # Generated SSH private key
-│   └── ansible_cluster_id_ed25519.pub  # Generated SSH public key
+│   ├── ansible_cluster_id_ed25519   # Generated SSH private key (GITIGNORED)
+│   ├── ansible_cluster_id_ed25519.pub  # Generated SSH public key
 │   └── .gitignore                   # Ensure secrets are not committed
 │
 └── docs/
-    ├── README.md                    # This documentation index
+    ├── README.md                    # Documentation index
     ├── quickstart.md                # Quick start guide
     ├── prerequis.md                 # Prerequisites & setup
     ├── architecture.md              # Infrastructure design
@@ -190,7 +213,7 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
     ├── modules.md                   # Module reference
     ├── cloud-init.md                # Cloud-init documentation
     ├── scripts.md                   # Scripts reference
-    ├── ansible.md                   # Ansible documentation
+    ├── ansible.md                   # Ansible documentation (enhanced)
     ├── secrets.md                   # Secrets management
     └── troubleshooting.md           # Troubleshooting guide
 ```
@@ -207,8 +230,10 @@ For step-by-step instructions, see [quickstart.md](docs/quickstart.md).
 | **Kubernetes** | 1.29 | Container orchestration |
 | **Ansible** | 2.9+ | Configuration management |
 | **containerd** | 1.x | Container runtime |
-| **Calico** | v3.29.x | CNI (Pod networking, NetworkPolicy, VXLAN overlay supported) |
-| **kubeadm** | 1.29 | Kubernetes bootstrap utility |
+| **Calico** | v3.29.x | CNI (Pod networking, NetworkPolicy, VXLAN overlay) |
+| **ArgoCD** | Stable | GitOps & continuous deployment |
+| **MetalLB** | Latest | Load balancer for bare metal |
+| **Nginx Ingress** | Latest | Ingress controller |
 
 ---
 

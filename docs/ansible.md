@@ -65,17 +65,22 @@ High-level flow implemented by `ansible/playbook.yml`:
 3. Join worker nodes
    - Execute the previously captured `kubeadm join` command on each worker (guarded to avoid re-running if node already configured)
 
-What's new in release v-0.0.2
-This project now includes an enhanced Ansible playbook that deploys Calico in VXLAN overlay mode and several additional cluster components and hardening steps. Key additions:
+What's new in release v-0.0.3
 
-- Calico VXLAN IPPool: the playbook deploys Calico and creates a custom `IPPool` with `cidr: 10.233.64.0/18`, `vxlanMode: Always`, `ipipMode: Never`, `natOutgoing: true` and `blockSize: 26` so the cluster uses an overlay VXLAN network assigned from the specified CIDR.
-- Calico tuning: after applying the Calico manifest the playbook patches the `calico-node` DaemonSet to set `FELIX_VXLANVNI` and `FELIX_VXLANPORT` to stable values, and waits for CRDs (IPPools) to be available before applying the IPPool.
-- Node preparation for Calico: creates required hostPaths, pre-pulls Calico/local-path images (supports `crictl`, `ctr`, `docker`) and adds short pauses and retries to improve first-boot reliability.
-- Storage: the playbook installs the Rancher `local-path-provisioner`, forces the image to a known version, and enforces `reclaimPolicy: Retain` on the StorageClass (with safe replace/recreate and diagnostic steps on failure).
-- Robustness: many installation steps include retries, `run_once` semantics, discovery cache invalidation, and diagnostic collection on failures to make bootstrap more reliable.
-- Additional add-ons: automated installation and basic verification of `metrics-server`, `MetalLB` (Helm), and `ingress-nginx` (Helm) with follow-up checks and example MetalLB IPAddressPool configuration.
+**Major Additions:**
+- **ArgoCD Integration**: Complete GitOps platform with automatic CRDs, namespace creation, pod health verification, and credential retrieval for admin access
+- **Guacamole via GitOps**: Automated Apache Guacamole deployment via ArgoCD using the `argocd-guacamole-gitops` repository
+- **Enhanced Helm Idempotency**: All Helm operations now use `helm upgrade --install` for graceful re-runs and updates
+- **Improved MetalLB**: Better status checks using proper label selectors, IPAddressPool condition monitoring, and detailed logging
+- **Better Error Messages**: Enhanced debug output for ArgoCD credentials, Helm operations, deployment verification, and structured informational messages
 
-These changes aim to provide a more complete, production-like learning environment (overlay networking, LB, ingress, metrics, resilient storage), while keeping the playbook idempotent and safe to re-run for typical learning/testing scenarios.
+**Continuing from v-0.0.2:**
+- Calico VXLAN IPPool (10.233.64.0/18, blockSize /26, natOutgoing enabled)
+- Calico node DaemonSet tuning (FELIX_VXLANVNI, FELIX_VXLANPORT)
+- Node preparation for Calico (hostPaths, pre-pulled images with crictl/ctr/docker support)
+- Storage layer (local-path-provisioner, reclaimPolicy=Retain, diagnostics on failure)
+- Additional add-ons: metrics-server, MetalLB, nginx-ingress
+- Full idempotence and safe re-runs for learning/testing scenarios
 
 Key implementation notes from the provided playbook:
 - The playbook uses `become: true` at the plays level to run privileged tasks.
@@ -97,6 +102,21 @@ Variables, secrets & Vault
     - Edit: `ansible-vault edit group_vars/all/vault.yml`
     - Run playbook with: `ansible-playbook --ask-vault-pass ...` or `--vault-password-file /path/to/vault_password_file`
 - Document any pipeline/CI usage of Vault if you plan automated runs (e.g. use secrets manager or GitHub Actions secrets).
+
+ArgoCD & Guacamole (v-0.0.3+)
+
+**ArgoCD Access:**
+- ArgoCD is deployed automatically as part of the cluster
+- Retrieve admin password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d`
+- Access via port-forward: `kubectl port-forward -n argocd svc/argocd-server 8080:443` then https://localhost:8080
+- **IMPORTANT**: Change the default password immediately after first login
+
+**Guacamole Deployment:**
+- Apache Guacamole (remote desktop access) is deployed via ArgoCD using the `argocd-guacamole-gitops` repository
+- Check deployment: `kubectl get all -A | grep -i guacamole`
+- Access Guacamole: `kubectl port-forward -n guacamole svc/guacamole 8080:8080` then http://localhost:8080/guacamole
+- Default credentials (from argocd-guacamole-gitops): username=`guacadmin`, password=`guacadmin` — **CHANGE IMMEDIATELY**
+- Refer to the argocd-guacamole-gitops repository for full configuration and customization
 
 Idempotence & re-runs
 - The playbook is mostly idempotent:
@@ -171,9 +191,10 @@ ansible_ssh_private_key_file=/home/ubuntu/.ssh/id_ansible
 ansible_user=ubuntu
 ```
 
-Recommended `ansible.cfg` snippet (optional; place in repo root or `/etc/ansible/ansible.cfg` on control node):
+Recommended `ansible.cfg` snippet (place in repo root or `/etc/ansible/ansible.cfg` on control node):
 ```ini
 [defaults]
+# Inventory and core settings
 inventory = ansible/inventory.ini
 host_key_checking = False
 remote_user = ubuntu
@@ -181,9 +202,34 @@ timeout = 30
 forks = 20
 pipelining = True
 
+# Vault configuration (for encrypting sensitive data)
+vault_identity_list = default@prompt
+vault_password_file = ~/.vault_pass  # Optional: store vault password securely
+
+# Output and deprecation settings
+stdout_callback = yaml
+bin_ansible_library = ./plugins/modules  # If using custom modules
+deprecation_warnings = False             # Silence deprecation warnings for cleaner output
+force_color = True                       # Use colored output in terminal
+
+# Performance and logging
+gather_timeout = 20
+log_path = ./ansible.log  # Optional: enable Ansible logging
+
 [ssh_connection]
 scp_if_ssh = True
+ssh_args = -C -o ControlMaster=auto -o ControlPersist=60s
+
+# Vault password sourcing (alternative to vault_password_file)
+[inventory]
+enable_plugins = ini, yaml, aws_ec2
 ```
+
+**Key notes for this project:**
+- `vault_identity_list`: Allows vault-encrypted variables in playbooks (useful for ArgoCD admin password, Guacamole credentials, etc.)
+- `stdout_callback = yaml`: More readable Ansible output in terminals
+- `log_path`: Enable for debugging ArgoCD/Guacamole deployments
+- `ssh_args`: Improves SSH multiplexing performance for large clusters
 
 Full playbook (primary `ansible/playbook.yml`)
 The playbook has been updated to deploy Calico as the cluster CNI and to install Helm on the master node. For the authoritative, runnable content, see:

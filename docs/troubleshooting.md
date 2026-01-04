@@ -35,6 +35,70 @@ This document is a consolidated troubleshooting guide collecting issues encounte
 
 ## Issues Observed
 
+### Issue 0: ArgoCD Pods Not Ready (v-0.0.3+)
+
+**Symptom:**
+```
+Pending or CrashLoopBackOff pods in argocd namespace
+argocd-server-* pods stuck in Pending
+```
+
+**Root Cause:**
+- CRDs not fully established before deployment
+- Insufficient cluster resources (CPU/Memory available)
+- Network connectivity issues pulling images
+- Webhook configurations not ready
+
+**Solution:**
+- Verify CRDs are installed: `kubectl api-resources | grep argocd`
+- Check pod logs: `kubectl logs -n argocd -f <pod-name>`
+- Ensure minimum 2GB free memory available on nodes
+- Wait 2-5 minutes for controller pods to reach Running state
+- Check events: `kubectl describe pod -n argocd <pod-name>`
+
+**Implementation:**
+```bash
+# Full ArgoCD diagnostics
+kubectl get pods -n argocd
+kubectl describe pod -n argocd argocd-server-xxxxx
+kubectl logs -n argocd argocd-server-xxxxx --tail=100
+kubectl get events -n argocd --sort-by='.lastTimestamp'
+```
+
+---
+
+### Issue 0b: MetalLB IPAddressPool Not Available (v-0.0.3+)
+
+**Symptom:**
+```
+IPAddressPool remains in Pending status
+LoadBalancer services stay in <pending>
+```
+
+**Root Cause:**
+- Speaker pods not running
+- L2Advertisement not configured
+- IP range conflicts with existing network devices
+- Network interface not properly configured
+
+**Solution:**
+- Verify speaker pods: `kubectl get pods -n metallb-system -l app.kubernetes.io/component=speaker`
+- Check L2Advertisement: `kubectl get l2advertisement -n metallb-system`
+- Verify IP range doesn't conflict: `ip addr show` on nodes
+- Check controller logs: `kubectl logs -n metallb-system -f metallb-controller-xxxxx`
+
+**Implementation:**
+```bash
+# Full MetalLB diagnostics
+kubectl get pods -n metallb-system
+kubectl get ipaddresspool -n metallb-system -o yaml
+kubectl get l2advertisement -n metallb-system -o yaml
+kubectl describe ipaddresspool -n metallb-system default
+kubectl logs -n metallb-system -f metallb-controller-xxxxx
+```
+
+---
+
 ### Issue 1: Disk Resize Mismatch
 
 **Symptom:**
